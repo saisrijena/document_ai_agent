@@ -19,7 +19,7 @@ st.set_page_config(
 
 st.title("📄 Document / PDF / Visual Scraping AI Agent")
 st.write(
-    "Upload PDF, DOCX, JPG, or PNG files. The app can extract document details, "
+    "Upload PDF, DOCX, JPG, or PNG files. The app can extract contract details, "
     "commercial rates, visual/scanned information, and perform complex calculations."
 )
 
@@ -62,8 +62,8 @@ if extraction_type in ["Ask Any Question / Complex Calculation", "Custom Questio
     user_question = st.text_area(
         "Ask your question",
         placeholder=(
-            "Example: Calculate annual plot rent for 50,000 sqm at AED 80 per sqm per annum. "
-            "Or calculate 5-year revenue with 2.5% escalation."
+            "Example: Calculate 5-year revenue for 50,000 sqm at AED 80 per sqm per annum "
+            "with 2.5% yearly escalation applied on the rate."
         )
     )
 
@@ -111,6 +111,8 @@ def convert_pdf_pages_to_images(file_bytes, max_pages=5):
 
         for page_index in range(total_pages):
             page = pdf_document[page_index]
+
+            # Higher resolution for visual reading
             pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
             img_bytes = pix.tobytes("png")
 
@@ -137,6 +139,7 @@ def extract_docx_text(file):
             if para.text.strip():
                 text += para.text + "\n"
 
+        # Extract tables
         for table in doc.tables:
             for row in table.rows:
                 cells = [cell.text.strip() for cell in row.cells]
@@ -171,17 +174,50 @@ Calculation rules:
 6. Show formula used.
 7. Show step-by-step working.
 8. Give final answer clearly.
-9. Handle complex commercial calculations such as:
-   - Area × rate
-   - Linear meter × daily rate × number of days
-   - Annual, monthly, quarterly, daily pro-rata calculations
-   - Escalation year-on-year
-   - Multi-year revenue
-   - Tax, discount, penalty, minimum commitment
-   - Contract billing period calculation
-   - Total payable amount
-10. If the document says “AED 80 per m² per annum”, understand it as AED 80 per square meter per year.
-11. If the document says “AED 26 per linear meter per day”, understand it as AED 26 per linear meter per day.
+
+Supported complex calculations:
+- Area × rate
+- Plot area rent calculation
+- Linear meter × daily rate × number of days
+- Annual billing
+- Monthly billing
+- Quarterly billing
+- Daily pro-rata calculation
+- Year-on-year escalation
+- Multi-year revenue
+- Tax calculation
+- Discount calculation
+- Penalty calculation
+- Minimum commitment calculation
+- Contract billing period calculation
+- Total payable amount
+
+Very important escalation rule:
+- Escalation must be applied on the RATE first, not directly on total revenue.
+- First calculate the escalated rate.
+- Then calculate revenue using the escalated rate.
+
+Correct formula:
+Escalated Rate = Previous Year Rate × (1 + Escalation Percentage)
+Revenue = Quantity / Area / Volume × Escalated Rate
+
+Example:
+If base rate is AED 80 per sqm per annum and escalation is 2.5%:
+
+Year 1 Rate = AED 80.00
+Year 1 Revenue = Area × 80.00
+
+Year 2 Rate = 80.00 × 1.025 = AED 82.00
+Year 2 Revenue = Area × 82.00
+
+Year 3 Rate = 82.00 × 1.025 = AED 84.05
+Year 3 Revenue = Area × 84.05
+
+Do not apply escalation directly on total revenue unless the document specifically says escalation applies to total revenue.
+
+If the document has fixed year-wise rates first and escalation starts later:
+- Use the fixed rate for the fixed years.
+- Start escalation from the last fixed rate or from the rate specified in the escalation clause.
 """
 
     elif extraction_type == "Commercial Rate Extraction":
@@ -201,6 +237,16 @@ For every rate found, provide:
 8. Clear business meaning in simple words
 9. Page number or section reference
 10. Missing or unclear details
+
+Important rules:
+- Do not miss any commercial rate.
+- Always include the exact text copied from the document.
+- If the document says “AED 80.00 per m² per annum”, understand it as AED 80 per square meter per year.
+- If the document says “AED 26.00 per linear meter per day”, understand it as AED 26 per linear meter per day.
+- If the document says “applicable prevailing tariff”, mark it as tariff-based.
+- If the document says “prevailing rates”, mark it as prevailing-rate based.
+- If a fixed amount is not available, write “Not fixed”.
+- Do not guess missing amounts.
 """
 
     elif extraction_type == "Contract Details":
@@ -220,6 +266,11 @@ Extract the following contract details:
 12. Missing or unclear commercial terms
 
 For commercial rates, include exact text, amount, currency, unit, frequency, and business meaning.
+
+For escalation:
+- Clearly mention whether escalation applies to rate, rent, tariff, or total amount.
+- Unless the document says otherwise, apply escalation on the rate first.
+- Then calculate revenue using the escalated rate.
 """
 
     elif extraction_type == "Billing Details":
@@ -235,6 +286,12 @@ Extract the following billing details:
 8. Escalation rule
 9. Billing conditions
 10. Any unclear billing terms
+
+For every billing rate, include exact text, amount, currency, unit, frequency, and business meaning.
+
+For escalation:
+- Apply escalation on the rate first.
+- Then calculate billing amount using the escalated rate.
 """
 
     elif extraction_type == "Invoice Details":
@@ -264,6 +321,12 @@ Read the visual or scanned document carefully and extract:
 7. Contract or invoice references
 8. Signatures, stamps, handwritten notes if visible
 9. Any unclear or unreadable parts
+
+For every commercial rate, include exact text, amount, currency, unit, frequency, and business meaning.
+
+For escalation:
+- Identify whether the escalation applies to rate or total revenue.
+- By default, apply escalation on the rate first unless the document clearly says otherwise.
 """
 
     elif extraction_type == "Risk / Missing Information":
@@ -278,6 +341,12 @@ Review the document and identify:
 7. Assumptions
 8. Risk points
 9. Clauses requiring manual review
+10. Unclear escalation logic
+
+For escalation risk:
+- Mention if it is unclear whether escalation applies on rate or total revenue.
+- Mention if base rate for escalation is missing.
+- Mention if escalation start year/date is missing.
 """
 
     else:
@@ -297,6 +366,7 @@ Your job is to:
 3. Perform calculations when asked.
 4. Show exact document text as evidence.
 5. Avoid guessing missing values.
+6. Understand commercial rate logic correctly.
 
 The document may contain:
 - Normal text
@@ -309,12 +379,28 @@ The document may contain:
 - Billing rates
 - Tariff details
 - Contract terms
+- Escalation clauses
 
 User request:
 {question}
 
 Extracted text from document:
 {document_text}
+
+Very important calculation rules:
+- For escalation, apply escalation on the RATE first, then calculate revenue.
+- Do not apply escalation directly on total revenue unless the document specifically states so.
+- Correct formula:
+  Escalated Rate = Previous Year Rate × (1 + Escalation Percentage)
+  Revenue = Quantity / Area / Volume × Escalated Rate
+- If rate is AED 80 per sqm per annum and escalation is 2.5%, then:
+  Year 1 Rate = AED 80.00
+  Year 2 Rate = AED 82.00
+  Year 3 Rate = AED 84.05
+- If fixed year-wise rates are mentioned before escalation starts, use those fixed rates first.
+- If escalation starts from a specific year, apply escalation only from that year.
+- If the escalation base is unclear, mention it as missing or unclear.
+- Do not guess missing values.
 
 Return only valid JSON in the following format:
 
@@ -345,6 +431,18 @@ Return only valid JSON in the following format:
       "notes": "Mention assumptions or missing inputs"
     }}
   ],
+  "year_wise_calculation": [
+    {{
+      "year": "Year number or calendar year",
+      "base_rate_or_previous_rate": "Previous rate used before escalation",
+      "escalation_percentage": "Escalation percentage applied on rate",
+      "escalated_rate": "Rate after escalation",
+      "quantity_area_or_volume": "Area, quantity, or volume used",
+      "revenue_formula": "Formula used for revenue",
+      "revenue": "Calculated revenue",
+      "notes": "Any assumption, fixed rate note, or escalation note"
+    }}
+  ],
   "missing_or_unclear_details": [
     "Mention anything missing, unclear, unreadable, or assumed"
   ]
@@ -357,6 +455,7 @@ Important:
 - Do not guess values that are not present.
 - Preserve exact commercial text from the document.
 - For calculations, always show formula and working.
+- For escalation calculations, apply escalation on the rate first, then calculate revenue.
 """
 
 
@@ -424,7 +523,7 @@ def clean_json_response(ai_result):
 # -------------------------------
 # Excel Creator
 # -------------------------------
-def create_excel_file(details_df, calculation_df):
+def create_excel_file(details_df, calculation_df, year_wise_df):
     excel_buffer = io.BytesIO()
 
     with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
@@ -433,6 +532,9 @@ def create_excel_file(details_df, calculation_df):
 
         if not calculation_df.empty:
             calculation_df.to_excel(writer, index=False, sheet_name="Calculations")
+
+        if not year_wise_df.empty:
+            year_wise_df.to_excel(writer, index=False, sheet_name="Year Wise Calculation")
 
     excel_buffer.seek(0)
     return excel_buffer
@@ -450,9 +552,11 @@ def show_result(ai_result):
 
         details = result_json.get("extracted_details", [])
         calculations = result_json.get("calculation_results", [])
+        year_wise = result_json.get("year_wise_calculation", [])
 
         details_df = pd.DataFrame(details)
         calculation_df = pd.DataFrame(calculations)
+        year_wise_df = pd.DataFrame(year_wise)
 
         if not details_df.empty:
             st.subheader("Extracted Details Table")
@@ -462,8 +566,12 @@ def show_result(ai_result):
             st.subheader("Calculation Results")
             st.dataframe(calculation_df, use_container_width=True)
 
-        if not details_df.empty or not calculation_df.empty:
-            excel_file = create_excel_file(details_df, calculation_df)
+        if not year_wise_df.empty:
+            st.subheader("Year-Wise Calculation")
+            st.dataframe(year_wise_df, use_container_width=True)
+
+        if not details_df.empty or not calculation_df.empty or not year_wise_df.empty:
+            excel_file = create_excel_file(details_df, calculation_df, year_wise_df)
 
             st.download_button(
                 label="Download Excel Report",
@@ -511,6 +619,7 @@ if st.button("Extract / Calculate"):
 
             with st.spinner("Reading file, understanding document, and preparing answer..."):
 
+                # PDF
                 if file_name.endswith(".pdf"):
                     document_text = extract_pdf_text(file_bytes)
 
@@ -528,10 +637,12 @@ if st.button("Extract / Calculate"):
                     else:
                         ai_result = ask_gemini_text(document_text, question)
 
+                # DOCX
                 elif file_name.endswith(".docx"):
                     document_text = extract_docx_text(uploaded_file)
                     ai_result = ask_gemini_text(document_text, question)
 
+                # Image
                 elif (
                     file_name.endswith(".jpg")
                     or file_name.endswith(".jpeg")
