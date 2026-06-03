@@ -6,4 +6,4 @@ import pandas as pd
 import io
 import json
 
-api_key = st.secrets["AQ.Ab8RN6KMwmej5CJPC8cpm68_qaXzF6X8GpLXkBv7M1J_J1xXHw"]
+api_key = st.secrets["GEMINI_API_KEY"]
