@@ -19,8 +19,8 @@ st.set_page_config(
 
 st.title("📄 Document / PDF / Visual Scraping AI Agent")
 st.write(
-    "Upload PDF, DOCX, JPG, or PNG files. The app will extract contract details, "
-    "billing details, invoice details, commercial rates, and visual/scanned document information."
+    "Upload PDF, DOCX, JPG, or PNG files. The app can extract document details, "
+    "commercial rates, visual/scanned information, and perform complex calculations."
 )
 
 # -------------------------------
@@ -45,6 +45,7 @@ uploaded_file = st.file_uploader(
 extraction_type = st.selectbox(
     "Select extraction type",
     [
+        "Ask Any Question / Complex Calculation",
         "Commercial Rate Extraction",
         "Contract Details",
         "Billing Details",
@@ -55,14 +56,14 @@ extraction_type = st.selectbox(
     ]
 )
 
-custom_question = ""
+user_question = ""
 
-if extraction_type == "Custom Question":
-    custom_question = st.text_area(
-        "What details do you want to extract?",
+if extraction_type in ["Ask Any Question / Complex Calculation", "Custom Question"]:
+    user_question = st.text_area(
+        "Ask your question",
         placeholder=(
-            "Example: Extract all commercial rates, exact text, currency, amount, "
-            "unit, frequency, billing terms, and business meaning."
+            "Example: Calculate annual plot rent for 50,000 sqm at AED 80 per sqm per annum. "
+            "Or calculate 5-year revenue with 2.5% escalation."
         )
     )
 
@@ -110,8 +111,6 @@ def convert_pdf_pages_to_images(file_bytes, max_pages=5):
 
         for page_index in range(total_pages):
             page = pdf_document[page_index]
-
-            # Higher resolution for better visual reading
             pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
             img_bytes = pix.tobytes("png")
 
@@ -138,7 +137,6 @@ def extract_docx_text(file):
             if para.text.strip():
                 text += para.text + "\n"
 
-        # Extract tables also
         for table in doc.tables:
             for row in table.rows:
                 cells = [cell.text.strip() for cell in row.cells]
@@ -153,9 +151,40 @@ def extract_docx_text(file):
 # -------------------------------
 # Question Builder
 # -------------------------------
-def get_question(extraction_type, custom_question):
+def get_question(extraction_type, user_question):
 
-    if extraction_type == "Commercial Rate Extraction":
+    if extraction_type == "Ask Any Question / Complex Calculation":
+        return f"""
+Answer the user's question based on the uploaded document.
+
+User question:
+{user_question}
+
+You must understand the document and perform calculations if required.
+
+Calculation rules:
+1. Extract values from the document first.
+2. Use exact text from the document as evidence.
+3. If the user gives additional values in the question, use them also.
+4. Do not guess missing values.
+5. If any value is missing, mention it clearly.
+6. Show formula used.
+7. Show step-by-step working.
+8. Give final answer clearly.
+9. Handle complex commercial calculations such as:
+   - Area × rate
+   - Linear meter × daily rate × number of days
+   - Annual, monthly, quarterly, daily pro-rata calculations
+   - Escalation year-on-year
+   - Multi-year revenue
+   - Tax, discount, penalty, minimum commitment
+   - Contract billing period calculation
+   - Total payable amount
+10. If the document says “AED 80 per m² per annum”, understand it as AED 80 per square meter per year.
+11. If the document says “AED 26 per linear meter per day”, understand it as AED 26 per linear meter per day.
+"""
+
+    elif extraction_type == "Commercial Rate Extraction":
         return """
 Extract all commercial rates, charges, tariffs, rent, fees, service charges, quay wall charges, utility charges,
 waste management charges, storage charges, plot charges, land lease rates, escalation rates, and billing rates
@@ -172,16 +201,6 @@ For every rate found, provide:
 8. Clear business meaning in simple words
 9. Page number or section reference
 10. Missing or unclear details
-
-Important rules:
-- Do not miss any commercial rate.
-- Always include the exact text copied from the document.
-- If the document says “AED 80.00 per m² per annum”, understand it as AED 80 per square meter per year.
-- If the document says “AED 26.00 per linear meter per day”, understand it as AED 26 per linear meter per day.
-- If the document says “applicable prevailing tariff”, mark it as tariff-based.
-- If the document says “prevailing rates”, mark it as prevailing-rate based.
-- If a fixed amount is not available, write “Not fixed”.
-- Do not guess missing amounts.
 """
 
     elif extraction_type == "Contract Details":
@@ -216,8 +235,6 @@ Extract the following billing details:
 8. Escalation rule
 9. Billing conditions
 10. Any unclear billing terms
-
-For every billing rate, include exact text, amount, currency, unit, frequency, and business meaning.
 """
 
     elif extraction_type == "Invoice Details":
@@ -247,8 +264,6 @@ Read the visual or scanned document carefully and extract:
 7. Contract or invoice references
 8. Signatures, stamps, handwritten notes if visible
 9. Any unclear or unreadable parts
-
-For every commercial rate, include exact text, amount, currency, unit, frequency, and business meaning.
 """
 
     elif extraction_type == "Risk / Missing Information":
@@ -266,7 +281,7 @@ Review the document and identify:
 """
 
     else:
-        return custom_question
+        return user_question
 
 
 # -------------------------------
@@ -276,7 +291,12 @@ def build_prompt(document_text, question):
     return f"""
 You are an expert document scraping AI agent for contracts, invoices, billing documents, and commercial documents.
 
-Your job is to read the uploaded document carefully and extract the requested details accurately.
+Your job is to:
+1. Read and understand the document.
+2. Extract exact commercial and contract details.
+3. Perform calculations when asked.
+4. Show exact document text as evidence.
+5. Avoid guessing missing values.
 
 The document may contain:
 - Normal text
@@ -299,7 +319,7 @@ Extracted text from document:
 Return only valid JSON in the following format:
 
 {{
-  "summary": "Short summary of the document",
+  "summary": "Short summary of the document and the answer",
   "extracted_details": [
     {{
       "field": "Charge type or field name",
@@ -313,6 +333,18 @@ Return only valid JSON in the following format:
       "reference": "Page number, section, clause, table, or visual reference if available"
     }}
   ],
+  "calculation_results": [
+    {{
+      "calculation_name": "Name of the calculation",
+      "inputs_used": "List the values used from the document or user question",
+      "formula": "Formula used",
+      "step_by_step_working": "Show the calculation steps clearly",
+      "final_result": "Final calculated result",
+      "currency": "Currency if applicable",
+      "unit": "Unit if applicable",
+      "notes": "Mention assumptions or missing inputs"
+    }}
+  ],
   "missing_or_unclear_details": [
     "Mention anything missing, unclear, unreadable, or assumed"
   ]
@@ -324,6 +356,7 @@ Important:
 - Do not add explanation outside JSON.
 - Do not guess values that are not present.
 - Preserve exact commercial text from the document.
+- For calculations, always show formula and working.
 """
 
 
@@ -371,24 +404,38 @@ def ask_gemini_visual(document_text, question, images):
 # -------------------------------
 def clean_json_response(ai_result):
     cleaned = ai_result.strip()
-
     cleaned = cleaned.replace("```json", "")
     cleaned = cleaned.replace("```", "")
     cleaned = cleaned.strip()
 
-    # Try direct JSON load
     try:
         return json.loads(cleaned)
     except Exception:
         pass
 
-    # Fallback: extract JSON block
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
 
     if match:
         return json.loads(match.group(0))
 
     raise ValueError("Could not parse AI response as JSON.")
+
+
+# -------------------------------
+# Excel Creator
+# -------------------------------
+def create_excel_file(details_df, calculation_df):
+    excel_buffer = io.BytesIO()
+
+    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+        if not details_df.empty:
+            details_df.to_excel(writer, index=False, sheet_name="Extracted Details")
+
+        if not calculation_df.empty:
+            calculation_df.to_excel(writer, index=False, sheet_name="Calculations")
+
+    excel_buffer.seek(0)
+    return excel_buffer
 
 
 # -------------------------------
@@ -402,23 +449,28 @@ def show_result(ai_result):
         st.write(result_json.get("summary", ""))
 
         details = result_json.get("extracted_details", [])
-        df = pd.DataFrame(details)
+        calculations = result_json.get("calculation_results", [])
 
-        if not df.empty:
+        details_df = pd.DataFrame(details)
+        calculation_df = pd.DataFrame(calculations)
+
+        if not details_df.empty:
             st.subheader("Extracted Details Table")
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(details_df, use_container_width=True)
 
-            excel_buffer = io.BytesIO()
-            df.to_excel(excel_buffer, index=False)
+        if not calculation_df.empty:
+            st.subheader("Calculation Results")
+            st.dataframe(calculation_df, use_container_width=True)
+
+        if not details_df.empty or not calculation_df.empty:
+            excel_file = create_excel_file(details_df, calculation_df)
 
             st.download_button(
-                label="Download Extracted Details in Excel",
-                data=excel_buffer.getvalue(),
-                file_name="extracted_document_details.xlsx",
+                label="Download Excel Report",
+                data=excel_file.getvalue(),
+                file_name="document_ai_extraction_and_calculation.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-        else:
-            st.info("No extracted details found.")
 
         missing = result_json.get("missing_or_unclear_details", [])
 
@@ -440,26 +492,25 @@ def show_result(ai_result):
 # -------------------------------
 # Main Button
 # -------------------------------
-if st.button("Extract Details"):
+if st.button("Extract / Calculate"):
 
     if not uploaded_file:
         st.error("Please upload a file.")
 
-    elif extraction_type == "Custom Question" and not custom_question:
-        st.error("Please enter your custom question.")
+    elif extraction_type in ["Ask Any Question / Complex Calculation", "Custom Question"] and not user_question:
+        st.error("Please enter your question.")
 
     else:
         try:
-            question = get_question(extraction_type, custom_question)
+            question = get_question(extraction_type, user_question)
             file_name = uploaded_file.name.lower()
             file_bytes = uploaded_file.getvalue()
 
             document_text = ""
             images = []
 
-            with st.spinner("Reading file and extracting details..."):
+            with st.spinner("Reading file, understanding document, and preparing answer..."):
 
-                # PDF
                 if file_name.endswith(".pdf"):
                     document_text = extract_pdf_text(file_bytes)
 
@@ -477,12 +528,10 @@ if st.button("Extract Details"):
                     else:
                         ai_result = ask_gemini_text(document_text, question)
 
-                # DOCX
                 elif file_name.endswith(".docx"):
                     document_text = extract_docx_text(uploaded_file)
                     ai_result = ask_gemini_text(document_text, question)
 
-                # Image
                 elif (
                     file_name.endswith(".jpg")
                     or file_name.endswith(".jpeg")
