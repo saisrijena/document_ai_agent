@@ -1,9 +1,6 @@
 import streamlit as st
-import fitz
-from docx import Document
-from google import genai
-import pandas as pd
-import io
-import json
 
-api_key = st.secrets["GEMINI_API_KEY"]
+st.set_page_config(page_title="Test App", layout="wide")
+
+st.title("✅ App is Working")
+st.write("If you can see this message, Streamlit deployment is successful.")
